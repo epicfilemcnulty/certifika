@@ -112,7 +112,7 @@ impl Account {
     pub fn generate_keypair() -> Result<EcdsaKeyPair, Box<dyn Error>> {
         // Generate a key pair in PKCS#8 (v2) format.
         let rng = rand::SystemRandom::new();
-        let alg = &signature::ECDSA_P256_SHA256_ASN1_SIGNING;
+        let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
         let pkcs8 = signature::EcdsaKeyPair::generate_pkcs8(alg, &rng).unwrap();
         let key_pair = signature::EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref()).unwrap();
         Ok(key_pair)
