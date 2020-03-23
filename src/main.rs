@@ -38,6 +38,7 @@ fn main() {
         "auth.deviant.guru".to_string(),
     ]
     .to_vec();
-    account.order(domains);
+    let order = account.order(domains).unwrap();
+    println!("{:?}", order);
     account.info();
 }

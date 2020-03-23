@@ -74,6 +74,22 @@ impl Directory {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Identifier {
+    #[serde(rename = "type")]
+    _type: String,
+    value: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Order {
+    status: String,
+    expires: String,
+    identifiers: Vec<Identifier>,
+    authorizations: Vec<String>,
+    finalize: String,
+}
+
 /// struct for the ACME [Account](https://tools.ietf.org/html/rfc8555#section-7.1.2) object.
 pub struct Account<'a> {
     store: &'a dyn storage::Store,
@@ -156,7 +172,7 @@ impl<'a> Account<'a> {
         Ok(acc)
     }
 
-    pub fn order(&mut self, domains: Vec<String>) {
+    pub fn order(&mut self, domains: Vec<String>) -> Result<Order, Box<dyn Error>> {
         let mut json = r#"{"identifiers":["#.to_string();
         for domain in domains {
             json.push_str(format!("{{\"type\":\"dns\",\"value\":\"{}\"}},", domain).as_str());
@@ -167,13 +183,17 @@ impl<'a> Account<'a> {
         let (status_code, response) = self
             .request("newOrder", serde_json::to_string(&p).unwrap())
             .unwrap();
-        println!("status, resp: {} {}", status_code, response);
+        if status_code.is_success() {
+            Ok(serde_json::from_str(&response).unwrap())
+        } else {
+            Err(response.into())
+        }
     }
 
     pub fn info(&mut self) {
         let url = self.kid.as_ref().unwrap().to_owned();
         let (status_code, response) = self.request(&url, "".to_string()).unwrap();
-        println!("{} {}", status_code, response);
+        println!("{}\n{}", status_code, response);
     }
 
     /// Generates an ECDSA (P-265 curve) keypair.
@@ -219,7 +239,7 @@ impl<'a> Account<'a> {
         &mut self,
         resource: &str,
         payload: String,
-    ) -> Result<(StatusCode, serde_json::Value), Box<dyn Error>> {
+    ) -> Result<(StatusCode, String), Box<dyn Error>> {
         let url = match self.directory.url_for(resource) {
             None => resource,
             Some(u) => u,
@@ -239,6 +259,6 @@ impl<'a> Account<'a> {
             let kid = res.headers().get("Location").unwrap();
             self.kid = Some(kid.to_str()?.to_string());
         }
-        Ok((res.status(), res.json()?))
+        Ok((res.status(), res.text()?))
     }
 }
