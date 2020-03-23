@@ -8,7 +8,6 @@ struct Config {
 }
 
 fn configure() -> Config {
-
     let home_dir = env::var("HOME").unwrap();
     Config {
         base_dir: env::var("CERTIFIKA_STORE_DIR")
@@ -17,7 +16,6 @@ fn configure() -> Config {
 }
 
 fn main() {
-
     let config = configure();
     let store_type = env::args().nth(1).unwrap();
     let command = env::args().nth(2).unwrap();
@@ -30,7 +28,7 @@ fn main() {
     };
 
     let mut account = match command.as_str() {
-        "load" => acme::Account::load(&email, &*store).unwrap(),
+        "load" => acme::Account::load(email, &*store).unwrap(),
         "reg" => acme::Account::new(email, &*store).unwrap(),
         _ => panic!("Unknown command!"),
     };

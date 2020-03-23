@@ -30,7 +30,7 @@ impl FileStore {
     pub fn init(base_dir: &str) -> Result<Self, Box<dyn Error>> {
         Ok(FileStore {
             base_dir: base_dir.to_string(),
-           })
+        })
     }
 }
 

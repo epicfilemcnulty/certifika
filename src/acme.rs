@@ -131,15 +131,16 @@ impl<'a> Account<'a> {
     }
 
     pub fn load(
-        email: &str,
+        email: String,
         store: &'a dyn storage::StoreOps,
     ) -> Result<Account<'a>, Box<dyn Error>> {
         let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
-        let pkcs8 = store.read(storage::ObjectKind::KeyPair, email)?;
+        let pkcs8 = store.read(storage::ObjectKind::KeyPair, &email)?;
         let key_pair = signature::EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref()).unwrap();
+        let dir = serde_json::from_slice(&store.read(storage::ObjectKind::Directory, &email)?)?;
         let mut acc = Account {
-            email: email.to_string(),
-            directory: serde_json::from_slice(&store.read(storage::ObjectKind::Directory, email)?)?,
+            email,
+            directory: dir,
             store,
             key_pair,
             pkcs8,
