@@ -32,6 +32,12 @@ fn main() {
         "reg" => acme::Account::new(email, &*store).unwrap(),
         _ => panic!("Unknown command!"),
     };
+    let domains: Vec<String> = [
+        "deviant.guru".to_string(),
+        "mail.deviant.guru".to_string(),
+        "auth.deviant.guru".to_string(),
+    ]
+    .to_vec();
+    account.order(domains);
     account.info();
-    account.order();
 }

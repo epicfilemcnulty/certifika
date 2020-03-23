@@ -7,7 +7,8 @@
 //!
 //! ## Register a new account
 //! ```
-//! let account = acme::Account::new("/acme/account/dir".as_str(), "some@email.com".as_str()?;
+//! let store = acme::storage::FileStore::init(&"/tmp/certifika").unwrap()
+//! let account = acme::Account::new("some@email.com".as_str(), &store).unwrap();
 //! ```
 use reqwest::blocking::Client;
 use reqwest::header::USER_AGENT;
@@ -155,20 +156,27 @@ impl<'a> Account<'a> {
         Ok(acc)
     }
 
-    pub fn info(&mut self) {
-        println!("kid: {}", self.kid.as_ref().unwrap());
-        println!("nonce: {}", self.nonce.as_ref().unwrap());
-    }
-
-    pub fn order(&mut self) {
-        let json = r#"
-            { "identifiers": [ { "type": "dns", "value": "deviant.guru" }] }
-        "#;
-        let payload: serde_json::Value = serde_json::from_str(&json).unwrap();
-        let (status_code, response) = self.request("newOrder", &payload).unwrap();
+    pub fn order(&mut self, domains: Vec<String>) {
+        let mut json = r#"{"identifiers":["#.to_string();
+        for domain in domains {
+            json.push_str(format!("{{\"type\":\"dns\",\"value\":\"{}\"}},", domain).as_str());
+        }
+        let _ = json.pop(); // remove the last comma
+        json.push_str("]}");
+        let p: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let (status_code, response) = self
+            .request("newOrder", serde_json::to_string(&p).unwrap())
+            .unwrap();
         println!("status, resp: {} {}", status_code, response);
     }
 
+    pub fn info(&mut self) {
+        let url = self.kid.as_ref().unwrap().to_owned();
+        let (status_code, response) = self.request(&url, "".to_string()).unwrap();
+        println!("{} {}", status_code, response);
+    }
+
+    /// Generates an ECDSA (P-265 curve) keypair.
     fn generate_keypair() -> Result<(EcdsaKeyPair, Vec<u8>), Box<dyn Error>> {
         // Generate a key pair in PKCS#8 (v2) format.
         let rng = rand::SystemRandom::new();
@@ -187,7 +195,8 @@ impl<'a> Account<'a> {
             serde_json::to_value(true)?,
         );
         payload.insert("contact".to_owned(), serde_json::to_value(contact)?);
-        let (status_code, response) = self.request("newAccount", payload)?;
+        let p: serde_json::Value = serde_json::to_value(&payload).unwrap();
+        let (status_code, response) = self.request("newAccount", serde_json::to_string(&p)?)?;
         if status_code.is_success() {
             Ok(())
         } else {
@@ -206,17 +215,17 @@ impl<'a> Account<'a> {
         Ok(nonce.to_str().unwrap().to_string())
     }
 
-    fn request<T: Serialize>(
+    fn request(
         &mut self,
         resource: &str,
-        payload: T,
+        payload: String,
     ) -> Result<(StatusCode, serde_json::Value), Box<dyn Error>> {
         let url = match self.directory.url_for(resource) {
             None => resource,
             Some(u) => u,
         };
         let nonce = self.nonce.as_ref().unwrap();
-        let jws = jws::sign(&self.key_pair, &nonce, &url, &payload, self.kid.as_deref())?;
+        let jws = jws::sign(&self.key_pair, &nonce, &url, payload, self.kid.as_deref())?;
         let client = Client::new();
         let req = client
             .post(url)

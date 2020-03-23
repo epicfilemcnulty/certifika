@@ -5,7 +5,6 @@
 use ring::rand;
 use ring::signature::EcdsaKeyPair;
 use ring::signature::KeyPair;
-use serde::Serialize;
 use std::collections::HashMap;
 use std::error::Error;
 
@@ -49,17 +48,16 @@ fn jwk(key_pair: &EcdsaKeyPair) -> Result<serde_json::Value, Box<dyn Error>> {
     Ok(serde_json::to_value(jwk)?)
 }
 
-pub fn sign<T: Serialize>(
+pub fn sign(
     key_pair: &EcdsaKeyPair,
     nonce: &str,
     url: &str,
-    payload: T,
+    payload: String,
     kid: Option<&str>,
 ) -> Result<String, Box<dyn Error>> {
     let mut data: HashMap<String, serde_json::Value> = HashMap::new();
 
     // payload: b64 of payload
-    let payload = serde_json::to_string(&payload)?;
     let payload64 = b64(&payload.into_bytes());
     data.insert("payload".to_owned(), serde_json::to_value(&payload64)?);
 
