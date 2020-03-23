@@ -75,7 +75,7 @@ impl Directory {
 
 /// struct for the ACME [Account](https://tools.ietf.org/html/rfc8555#section-7.1.2) object.
 pub struct Account<'a> {
-    store: &'a dyn storage::StoreOps,
+    store: &'a dyn storage::Store,
     email: String,
     directory: Directory,
     key_pair: EcdsaKeyPair,
@@ -88,17 +88,17 @@ impl<'a> Account<'a> {
     /// Tries to register a new ACME account.
     pub fn new(
         email: String,
-        store: &'a dyn storage::StoreOps,
+        store: &'a dyn storage::Store,
     ) -> Result<Account<'a>, Box<dyn Error>> {
-        let (kp, pk) = Account::generate_keypair()?;
+        let (key_pair, pkcs8) = Account::generate_keypair()?;
         let mut acc = Account {
             email,
+            store,
             directory: Directory::lets_encrypt()?,
-            key_pair: kp,
-            pkcs8: pk,
+            key_pair,
+            pkcs8,
             nonce: None,
             kid: None,
-            store,
         };
         acc.nonce = Some(acc.get_nonce()?);
         match &acc.register() {
@@ -132,7 +132,7 @@ impl<'a> Account<'a> {
 
     pub fn load(
         email: String,
-        store: &'a dyn storage::StoreOps,
+        store: &'a dyn storage::Store,
     ) -> Result<Account<'a>, Box<dyn Error>> {
         let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
         let pkcs8 = store.read(storage::ObjectKind::KeyPair, &email)?;

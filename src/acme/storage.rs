@@ -8,7 +8,7 @@ pub enum ObjectKind {
     Account,
 }
 
-pub trait StoreOps {
+pub trait Store {
     fn read(&self, kind: ObjectKind, account_name: &str) -> Result<Vec<u8>, Box<dyn Error>>;
     fn write(
         &self,
@@ -34,7 +34,7 @@ impl FileStore {
     }
 }
 
-impl StoreOps for FileStore {
+impl Store for FileStore {
     fn read(&self, kind: ObjectKind, account_name: &str) -> Result<Vec<u8>, Box<dyn Error>> {
         let filename = match kind {
             ObjectKind::Directory => format!("{}/accounts/{}.dir", self.base_dir, account_name),
@@ -73,7 +73,7 @@ impl DbStore {
     }
 }
 
-impl StoreOps for DbStore {
+impl Store for DbStore {
     fn read(&self, kind: ObjectKind, account_name: &str) -> Result<Vec<u8>, Box<dyn Error>> {
         let key = match kind {
             ObjectKind::Directory => format!("acc:dir:{}", account_name),

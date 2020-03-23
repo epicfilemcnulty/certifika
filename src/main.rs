@@ -21,7 +21,7 @@ fn main() {
     let command = env::args().nth(2).unwrap();
     let email = env::args().nth(3).unwrap();
 
-    let store: Box<dyn acme::storage::StoreOps> = match store_type.as_str() {
+    let store: Box<dyn acme::storage::Store> = match store_type.as_str() {
         "file" => Box::new(acme::storage::FileStore::init(&config.base_dir).unwrap()),
         "db" => Box::new(acme::storage::DbStore::init(&config.base_dir).unwrap()),
         _ => panic!("unknown storage type"),
