@@ -10,9 +10,6 @@
 //! let store = acme::storage::FileStore::init(&"/tmp/certifika").unwrap()
 //! let account = acme::Account::new("some@email.com".as_str(), &store).unwrap();
 //! ```
-use reqwest::blocking::Client;
-use reqwest::header::USER_AGENT;
-use reqwest::StatusCode;
 use ring::{
     digest, rand,
     signature::{self, EcdsaKeyPair},
@@ -25,9 +22,12 @@ use std::{thread, time};
 mod jws;
 pub mod storage;
 
+fn http_status_ok(status: u16) -> bool {
+    status >= 200 && status <300
+}
 /// **RFC8555** says that all ACME clients should send user-agent header,
 /// consisting of the client's name and version + http library's name and version.
-pub const USER_AGENT_VALUE: &str = "certifika 0.1/reqwest 0.10";
+pub const USER_AGENT: &str = "certifika 0.1/ureq 0.12.0";
 pub const LETSENCRYPT_DIRECTORY_URL: &str =
     "https://acme-staging-v02.api.letsencrypt.org/directory";
 
@@ -48,15 +48,16 @@ impl Directory {
     }
     /// method to create a new Directory instance from an URL.
     pub fn from_url(url: &str) -> Result<Directory, Box<dyn Error>> {
-        let client = Client::new();
-        let res = client
-            .get(url)
-            .header(USER_AGENT, USER_AGENT_VALUE)
-            .send()?;
-        Ok(Directory {
-            url: url.to_owned(),
-            directory: res.json()?,
-        })
+        let agent = ureq::agent().set("User-Agent", USER_AGENT).build();
+        let response = agent.get(url).call();
+        if response.ok() {
+            Ok(Directory {
+                url: url.to_owned(),
+                directory: response.into_json()?,
+            })
+        } else {
+            Err(response.into_string()?.into())
+        }
     }
 
     /// `self.directory` field has a JSON directory object we got from Let's Encrypt. It has links to all Let's Encrypt resources:
@@ -201,7 +202,7 @@ impl<'a> Account<'a> {
         let (status_code, response) = self
             .request("newOrder", serde_json::to_string(&p).unwrap())
             .unwrap();
-        if status_code.is_success() {
+        if http_status_ok(status_code) {
             let order: Order = serde_json::from_str(&response).unwrap();
             for auth in &order.authorizations {
                 let a = self.authorization(&auth).unwrap();
@@ -223,7 +224,7 @@ impl<'a> Account<'a> {
 
     fn authorization(&mut self, url: &str) -> Result<Authorization, Box<dyn Error>> {
         let (status_code, response) = self.request(url, "".to_string()).unwrap();
-        if status_code.is_success() {
+        if http_status_ok(status_code) {
             Ok(serde_json::from_str(&response).unwrap())
         } else {
             Err(response.into())
@@ -267,7 +268,7 @@ impl<'a> Account<'a> {
         payload.insert("contact".to_owned(), serde_json::to_value(contact)?);
         let p: serde_json::Value = serde_json::to_value(&payload).unwrap();
         let (status_code, response) = self.request("newAccount", serde_json::to_string(&p)?)?;
-        if status_code.is_success() {
+        if http_status_ok(status_code) {
             Ok(())
         } else {
             Err(format!("failed to register account - {}", response).into())
@@ -285,39 +286,35 @@ impl<'a> Account<'a> {
 
     fn get_nonce(&self) -> Result<String, Box<dyn Error>> {
         let url = self.directory.url_for("newNonce").unwrap();
-        let client = Client::new();
-        let res = client
-            .head(url)
-            .header(USER_AGENT, USER_AGENT_VALUE)
-            .send()?;
-        let nonce = res.headers().get("Replay-Nonce").unwrap();
-        Ok(nonce.to_str().unwrap().to_string())
+        let agent = ureq::agent().set("User-Agent", USER_AGENT).build();
+        let response = agent.head(url).call();
+        if response.ok() {
+            let nonce = response.header("Replay-Nonce").unwrap();
+            Ok(nonce.to_string())
+        } else {
+            Err(response.into_string()?.into())
+        }
     }
 
     fn request(
         &mut self,
         resource: &str,
         payload: String,
-    ) -> Result<(StatusCode, String), Box<dyn Error>> {
+    ) -> Result<(u16, String), Box<dyn Error>> {
         let url = match self.directory.url_for(resource) {
             None => resource,
             Some(u) => u,
         };
         let nonce = self.nonce.as_ref().unwrap();
         let jws = jws::sign(&self.key_pair, &nonce, &url, payload, self.kid.as_deref())?;
-        let client = Client::new();
-        let req = client
-            .post(url)
-            .header(USER_AGENT, USER_AGENT_VALUE)
-            .header("content-type", "application/jose+json")
-            .body(jws);
-        let res = req.send()?;
-        let nonce = res.headers().get("Replay-Nonce").unwrap();
-        self.nonce = Some(nonce.to_str().unwrap().to_string());
+        let agent = ureq::agent().set("User-Agent", USER_AGENT).set("Content-Type", "application/jose+json").build();
+        let response= agent.post(url).send_string(&jws);
+        let nonce = response.header("Replay-Nonce").unwrap();
+        self.nonce = Some(nonce.to_string());
         if resource == "newAccount" {
-            let kid = res.headers().get("Location").unwrap();
-            self.kid = Some(kid.to_str()?.to_string());
+            let kid = response.header("Location").unwrap();
+            self.kid = Some(kid.to_string());
         }
-        Ok((res.status(), res.text()?))
+        Ok((response.status(), response.into_string()?))
     }
 }
