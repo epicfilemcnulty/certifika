@@ -35,7 +35,7 @@ requirement, then the server MUST return a response with status code
 ```
 HEAD /acme/new-nonce HTTP/1.1
 Host: example.com
-HTTP/1.1 2 OK
+HTTP/1.1 200 OK
 Replay-Nonce: oFvnlFP1wIhRlYS2jTaXbA
 Cache-Control: no-store
 Link: <https://example.com/acme/directory>;rel="index"

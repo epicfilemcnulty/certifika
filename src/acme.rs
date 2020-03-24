@@ -14,12 +14,13 @@ use reqwest::blocking::Client;
 use reqwest::header::USER_AGENT;
 use reqwest::StatusCode;
 use ring::{
-    rand,
+    digest, rand,
     signature::{self, EcdsaKeyPair},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
+use std::{thread, time};
 
 mod jws;
 pub mod storage;
@@ -88,6 +89,23 @@ pub struct Order {
     identifiers: Vec<Identifier>,
     authorizations: Vec<String>,
     finalize: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Challenge {
+    #[serde(rename = "type")]
+    _type: String,
+    status: String,
+    url: String,
+    token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Authorization {
+    identifier: Identifier,
+    status: String,
+    expires: String,
+    challenges: Vec<Challenge>,
 }
 
 /// struct for the ACME [Account](https://tools.ietf.org/html/rfc8555#section-7.1.2) object.
@@ -172,7 +190,7 @@ impl<'a> Account<'a> {
         Ok(acc)
     }
 
-    pub fn order(&mut self, domains: Vec<String>) -> Result<Order, Box<dyn Error>> {
+    pub fn order(&mut self, domains: Vec<String>) -> Result<(), Box<dyn Error>> {
         let mut json = r#"{"identifiers":["#.to_string();
         for domain in domains {
             json.push_str(format!("{{\"type\":\"dns\",\"value\":\"{}\"}},", domain).as_str());
@@ -184,10 +202,42 @@ impl<'a> Account<'a> {
             .request("newOrder", serde_json::to_string(&p).unwrap())
             .unwrap();
         if status_code.is_success() {
+            let order: Order = serde_json::from_str(&response).unwrap();
+            for auth in &order.authorizations {
+                let a = self.authorization(&auth).unwrap();
+                for c in &a.challenges {
+                    if c._type == "dns-01" {
+                        let ka = self.key_authorization(&c.token);
+                        self.trigger_challenge(&c.url);
+                        let two_seconds = time::Duration::new(2, 0);
+                        thread::sleep(two_seconds);
+                        self.challenge_status(&c.url);
+                    }
+                }
+            }
+            Ok(())
+        } else {
+            Err(response.into())
+        }
+    }
+
+    fn authorization(&mut self, url: &str) -> Result<Authorization, Box<dyn Error>> {
+        let (status_code, response) = self.request(url, "".to_string()).unwrap();
+        if status_code.is_success() {
             Ok(serde_json::from_str(&response).unwrap())
         } else {
             Err(response.into())
         }
+    }
+
+    fn trigger_challenge(&mut self, url: &str) {
+        let (status_code, response) = self.request(url, "{}".to_string()).unwrap();
+        println!("{},{}", status_code, response);
+    }
+
+    fn challenge_status(&mut self, url: &str) {
+        let (status_code, response) = self.request(url, "".to_string()).unwrap();
+        println!("{},{}", status_code, response);
     }
 
     pub fn info(&mut self) {
@@ -222,6 +272,15 @@ impl<'a> Account<'a> {
         } else {
             Err(format!("failed to register account - {}", response).into())
         }
+    }
+
+    /// Function to calculate [Key Authorization](https://tools.ietf.org/html/rfc8555#section-8.1). Basically, it's a token from the challenge + base64url encoded SHA256 hash
+    /// of the jwk.
+    pub fn key_authorization(&self, token: &str) -> String {
+        let jwk = jws::jwk(&self.key_pair).unwrap().to_string();
+        let hash = digest::digest(&digest::SHA256, jwk.as_bytes());
+        let key_authorization = format!("{}.{}", token, jws::b64(hash.as_ref()));
+        key_authorization
     }
 
     fn get_nonce(&self) -> Result<String, Box<dyn Error>> {

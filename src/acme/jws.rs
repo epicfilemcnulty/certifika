@@ -16,13 +16,13 @@ use std::error::Error;
 /// JSON Web Signature in Section 2 of [RFC7515]. This encoding uses a URL safe
 /// character set. Trailing '=' characters MUST be stripped. Encoded values that include
 /// trailing '=' characters MUST be rejected as improperly encoded*
-fn b64(data: &[u8]) -> String {
+pub fn b64(data: &[u8]) -> String {
     base64::encode_config(data, base64::URL_SAFE_NO_PAD)
 }
 
 /// Generates JWK from an EcdsaKeyPair. See [RFC7517](https://tools.ietf.org/html/rfc7517) on JWK,
 /// and [RFC7518](https://tools.ietf.org/html/rfc7518) on JWA and different JWK parameters.
-fn jwk(key_pair: &EcdsaKeyPair) -> Result<serde_json::Value, Box<dyn Error>> {
+pub fn jwk(key_pair: &EcdsaKeyPair) -> Result<serde_json::Value, Box<dyn Error>> {
     let public_key = key_pair.public_key().as_ref();
     // First octect of the public key says whether it's uncompressed (04) or not (03 o 02).
     // After that it has X and Y coordinates, each 32 bytes long.
