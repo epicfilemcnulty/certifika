@@ -15,7 +15,6 @@ use ring::{
     signature::{self, KeyPair, EcdsaKeyPair},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::error::Error;
 use std::{thread, time};
 
@@ -189,15 +188,17 @@ impl<'a> Account<'a> {
     }
 
     pub fn order(&mut self, domains: Vec<String>) -> Result<(), Box<dyn Error>> {
-        let mut json = r#"{"identifiers":["#.to_string();
-        for domain in domains {
-            json.push_str(format!("{{\"type\":\"dns\",\"value\":\"{}\"}},", domain).as_str());
+        #[derive(Debug, Serialize, Deserialize)]
+        struct OrderReq {
+            identifiers: Vec<Identifier>
         }
-        let _ = json.pop(); // remove the last comma
-        json.push_str("]}");
-        let p: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let mut ids: Vec<Identifier> = Vec::new();   
+        for domain in domains {
+            ids.push( Identifier { _type: "dns".to_string(), value: domain });
+        }
+        let payload = serde_json::to_string(&OrderReq { identifiers: ids })?;
         let (status_code, response) = self
-            .request("newOrder", serde_json::to_string(&p).unwrap())
+            .request("newOrder", payload)
             .unwrap();
         if http_status_ok(status_code) {
             let order: Order = serde_json::from_str(&response).unwrap();
@@ -255,16 +256,14 @@ impl<'a> Account<'a> {
     }
 
     fn register(&mut self) -> Result<(), Box<dyn Error>> {
-        let mut payload = HashMap::new();
-        let mut contact: Vec<String> = Vec::new();
-        contact.push(format!("mailto:{}", self.email.to_owned())); // <--- probably gotta convert this to string
-        payload.insert(
-            "termsOfServiceAgreed".to_owned(),
-            serde_json::to_value(true)?,
-        );
-        payload.insert("contact".to_owned(), serde_json::to_value(contact)?);
-        let p: serde_json::Value = serde_json::to_value(&payload).unwrap();
-        let (status_code, response) = self.request("newAccount", serde_json::to_string(&p)?)?;
+        #[derive(Debug, Serialize, Deserialize)]
+        struct Registration {
+            contact: Vec<String>,
+            #[serde(rename = "termsOfServiceAgreed")]
+            terms_of_service_agreed: bool,
+        }
+        let payload = serde_json::to_string(&Registration { contact: vec![format!("mailto:{}", self.email.to_owned())], terms_of_service_agreed: true })?;
+        let (status_code, response) = self.request("newAccount", payload)?;
         if http_status_ok(status_code) {
             Ok(())
         } else {
