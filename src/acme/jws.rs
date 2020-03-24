@@ -26,20 +26,8 @@ pub fn jwk(key_pair: &EcdsaKeyPair) -> Result<serde_json::Value, Box<dyn Error>>
     let public_key = key_pair.public_key().as_ref();
     // First octect of the public key says whether it's uncompressed (04) or not (03 o 02).
     // After that it has X and Y coordinates, each 32 bytes long.
-    let x_comp: Vec<u8> = public_key
-        .iter()
-        .skip(1)
-        .take(32)
-        .copied()
-        .to_owned()
-        .collect();
-    let y_comp: Vec<u8> = public_key
-        .iter()
-        .skip(33)
-        .take(32)
-        .copied()
-        .to_owned()
-        .collect();
+    let x_comp: Vec<u8> = public_key.iter().skip(1).take(32).copied().collect();
+    let y_comp: Vec<u8> = public_key.iter().skip(33).take(32).copied().collect();
     let mut jwk: HashMap<String, String> = HashMap::new();
     jwk.insert("crv".to_owned(), "P-256".to_owned());
     jwk.insert("kty".to_owned(), "EC".to_owned());

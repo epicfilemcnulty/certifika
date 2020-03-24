@@ -23,7 +23,7 @@ mod jws;
 pub mod storage;
 
 fn http_status_ok(status: u16) -> bool {
-    status >= 200 && status <300
+    status >= 200 && status < 300
 }
 /// **RFC8555** says that all ACME clients should send user-agent header,
 /// consisting of the client's name and version + http library's name and version.
@@ -307,8 +307,11 @@ impl<'a> Account<'a> {
         };
         let nonce = self.nonce.as_ref().unwrap();
         let jws = jws::sign(&self.key_pair, &nonce, &url, payload, self.kid.as_deref())?;
-        let agent = ureq::agent().set("User-Agent", USER_AGENT).set("Content-Type", "application/jose+json").build();
-        let response= agent.post(url).send_string(&jws);
+        let agent = ureq::agent()
+            .set("User-Agent", USER_AGENT)
+            .set("Content-Type", "application/jose+json")
+            .build();
+        let response = agent.post(url).send_string(&jws);
         let nonce = response.header("Replay-Nonce").unwrap();
         self.nonce = Some(nonce.to_string());
         if resource == "newAccount" {
