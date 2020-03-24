@@ -12,7 +12,7 @@
 //! ```
 use ring::{
     digest, rand,
-    signature::{self, EcdsaKeyPair},
+    signature::{self, KeyPair, EcdsaKeyPair},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -278,7 +278,7 @@ impl<'a> Account<'a> {
     /// Function to calculate [Key Authorization](https://tools.ietf.org/html/rfc8555#section-8.1). Basically, it's a token from the challenge + base64url encoded SHA256 hash
     /// of the jwk.
     pub fn key_authorization(&self, token: &str) -> String {
-        let jwk = jws::jwk(&self.key_pair).unwrap().to_string();
+        let jwk = jws::jwk(self.key_pair.public_key().as_ref()).unwrap().to_string();
         let hash = digest::digest(&digest::SHA256, jwk.as_bytes());
         let key_authorization = format!("{}.{}", token, jws::b64(hash.as_ref()));
         key_authorization
@@ -314,10 +314,14 @@ impl<'a> Account<'a> {
         let response = agent.post(url).send_string(&jws);
         let nonce = response.header("Replay-Nonce").unwrap();
         self.nonce = Some(nonce.to_string());
-        if resource == "newAccount" {
-            let kid = response.header("Location").unwrap();
-            self.kid = Some(kid.to_string());
+        if http_status_ok(response.status()) {
+            if resource == "newAccount" {
+                let kid = response.header("Location").unwrap_or("none");
+                self.kid = Some(kid.to_string());
+            }
+            Ok((response.status(), response.into_string()?))
+        } else {
+            Err(response.into_string()?.into())
         }
-        Ok((response.status(), response.into_string()?))
     }
 }

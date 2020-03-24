@@ -22,8 +22,7 @@ pub fn b64(data: &[u8]) -> String {
 
 /// Generates JWK from an EcdsaKeyPair. See [RFC7517](https://tools.ietf.org/html/rfc7517) on JWK,
 /// and [RFC7518](https://tools.ietf.org/html/rfc7518) on JWA and different JWK parameters.
-pub fn jwk(key_pair: &EcdsaKeyPair) -> Result<serde_json::Value, Box<dyn Error>> {
-    let public_key = key_pair.public_key().as_ref();
+pub fn jwk(public_key: &[u8]) -> Result<serde_json::Value, Box<dyn Error>> {
     // First octect of the public key says whether it's uncompressed (04) or not (03 o 02).
     // After that it has X and Y coordinates, each 32 bytes long.
     let x_comp: Vec<u8> = public_key.iter().skip(1).take(32).copied().collect();
@@ -53,7 +52,7 @@ pub fn sign(
     let mut header: HashMap<String, serde_json::Value> = HashMap::new();
     header.insert("alg".to_owned(), serde_json::to_value("ES256")?);
     match kid {
-        None => header.insert("jwk".to_owned(), jwk(key_pair)?),
+        None => header.insert("jwk".to_owned(), jwk(key_pair.public_key().as_ref())?),
         Some(k) => header.insert("kid".to_owned(), serde_json::to_value(k)?),
     };
     header.insert("nonce".to_owned(), serde_json::to_value(nonce)?);
