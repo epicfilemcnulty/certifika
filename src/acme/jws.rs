@@ -1,6 +1,5 @@
 //! module to work with JSON Web Signatures -- [RFC7515](https://tools.ietf.org/html/rfc7515).
-//! There is a single public function, `jws::sign()`, and the module supports
-//! signing with ECDSA P-256 keys only.
+//! The module supports signing with ECDSA P-256 keys only.
 
 use ring::rand;
 use ring::signature::EcdsaKeyPair;
@@ -20,11 +19,12 @@ pub fn b64(data: &[u8]) -> String {
     base64::encode_config(data, base64::URL_SAFE_NO_PAD)
 }
 
-/// Generates JWK from an EcdsaKeyPair. See [RFC7517](https://tools.ietf.org/html/rfc7517) on JWK,
+/// Generates JWK from a public key of EcdsaKeyPair. See [RFC7517](https://tools.ietf.org/html/rfc7517) on JWK,
 /// and [RFC7518](https://tools.ietf.org/html/rfc7518) on JWA and different JWK parameters.
 pub fn jwk(public_key: &[u8]) -> Result<serde_json::Value, Box<dyn Error>> {
     // First octect of the public key says whether it's uncompressed (04) or not (03 o 02).
-    // After that it has X and Y coordinates, each 32 bytes long.
+    // After that it has X and Y coordinates, each 32 bytes long. We know that we are dealing
+    // with the uncompressed key of the same length all the time, so we can do this:
     let x_comp: Vec<u8> = public_key.iter().skip(1).take(32).copied().collect();
     let y_comp: Vec<u8> = public_key.iter().skip(33).take(32).copied().collect();
     let mut jwk: HashMap<String, String> = HashMap::new();
@@ -35,6 +35,7 @@ pub fn jwk(public_key: &[u8]) -> Result<serde_json::Value, Box<dyn Error>> {
     Ok(serde_json::to_value(jwk)?)
 }
 
+/// Signs the `payload` and returns the signature as a string.
 pub fn sign(
     key_pair: &EcdsaKeyPair,
     nonce: &str,
@@ -44,7 +45,7 @@ pub fn sign(
 ) -> Result<String, Box<dyn Error>> {
     let mut data: HashMap<String, serde_json::Value> = HashMap::new();
 
-    // payload: b64 of payload
+    // payload
     let payload64 = b64(&payload.into_bytes());
     data.insert("payload".to_owned(), serde_json::to_value(&payload64)?);
 

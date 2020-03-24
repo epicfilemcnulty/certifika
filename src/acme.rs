@@ -22,9 +22,6 @@ use std::{thread, time};
 mod jws;
 pub mod storage;
 
-fn http_status_ok(status: u16) -> bool {
-    status >= 200 && status < 300
-}
 /// **RFC8555** says that all ACME clients should send user-agent header,
 /// consisting of the client's name and version + http library's name and version.
 pub const USER_AGENT: &str = "certifika 0.1/ureq 0.12.0";
@@ -233,12 +230,12 @@ impl<'a> Account<'a> {
 
     fn trigger_challenge(&mut self, url: &str) {
         let (status_code, response) = self.request(url, "{}".to_string()).unwrap();
-        println!("{},{}", status_code, response);
+        println!("{}\n{}", status_code, response);
     }
 
     fn challenge_status(&mut self, url: &str) {
         let (status_code, response) = self.request(url, "".to_string()).unwrap();
-        println!("{},{}", status_code, response);
+        println!("{}\n{}", status_code, response);
     }
 
     pub fn info(&mut self) {
@@ -324,4 +321,8 @@ impl<'a> Account<'a> {
             Err(response.into_string()?.into())
         }
     }
+}
+
+fn http_status_ok(status: u16) -> bool {
+    status >= 200 && status < 300
 }
