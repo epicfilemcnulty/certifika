@@ -15,7 +15,7 @@ impl log::Log for Logger {
         if self.enabled(record.metadata()) {
             if record.target() == "certifika::acme" {
                 println!(
-                    "{{\"level\":\"{}\",\"message\":{}}}",
+                    r#"{{"level":"{}","message":{}}}"#,
                     record.level(),
                     record.args()
                 );

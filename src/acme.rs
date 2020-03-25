@@ -233,7 +233,7 @@ impl<'a> Account<'a> {
     fn trigger_challenge(&mut self, url: &str) {
         let (status_code, response) = self.request(url, "{}".to_string()).unwrap();
         log::info!(
-            "{{\"op\":\"challenge start\", \"status\": {}, \"response\": {}}}",
+            r#"{{"op":"challenge start","status":{},"response":{}}}"#,
             status_code,
             response
         );
@@ -242,7 +242,7 @@ impl<'a> Account<'a> {
     fn challenge_status(&mut self, url: &str) {
         let (status_code, response) = self.request(url, "".to_string()).unwrap();
         log::info!(
-            "{{\"op\":\"challenge status\", \"status\": {}, \"response\": {}}}",
+            r#"{{"op":"challenge status","status":{},"response":{}}}"#,
             status_code,
             response
         );
@@ -252,7 +252,7 @@ impl<'a> Account<'a> {
         let url = self.kid.as_ref().unwrap().to_owned();
         let (status_code, response) = self.request(&url, "".to_string()).unwrap();
         log::info!(
-            "{{\"op\":\"account info\", \"status\": {}, \"response\": {}}}",
+            r#"{{"op":"account info","status":{},"response":{}}}"#,
             status_code,
             response
         );
@@ -320,11 +320,7 @@ impl<'a> Account<'a> {
             Some(u) => u,
         };
         let nonce = self.nonce.as_ref().unwrap();
-        log::debug!(
-            "{{\"op\":\"request\",\"url\":\"{}\",\"body\":{}}}",
-            url,
-            payload
-        );
+        log::debug!(r#"{{"op":"request","url":"{}","body":{}}}"#, url, payload);
         let jws = jws::sign(&self.key_pair, &nonce, &url, payload, self.kid.as_deref())?;
         let agent = ureq::agent()
             .set("User-Agent", USER_AGENT)
@@ -334,7 +330,7 @@ impl<'a> Account<'a> {
         let nonce = response.header("Replay-Nonce").unwrap();
         self.nonce = Some(nonce.to_string());
         log::debug!(
-            "{{\"op\":\"request responded\", \"status\":{}}}",
+            r#"{{"op":"request responded","status":{}}}"#,
             response.status()
         );
         if http_status_ok(response.status()) {
