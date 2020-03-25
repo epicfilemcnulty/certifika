@@ -12,7 +12,7 @@
 //! ```
 use ring::{
     digest, rand,
-    signature::{self, KeyPair, EcdsaKeyPair},
+    signature::{self, EcdsaKeyPair, KeyPair},
 };
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -190,16 +190,17 @@ impl<'a> Account<'a> {
     pub fn order(&mut self, domains: Vec<String>) -> Result<(), Box<dyn Error>> {
         #[derive(Debug, Serialize, Deserialize)]
         struct OrderReq {
-            identifiers: Vec<Identifier>
+            identifiers: Vec<Identifier>,
         }
-        let mut ids: Vec<Identifier> = Vec::new();   
+        let mut ids: Vec<Identifier> = Vec::new();
         for domain in domains {
-            ids.push( Identifier { _type: "dns".to_string(), value: domain });
+            ids.push(Identifier {
+                _type: "dns".to_string(),
+                value: domain,
+            });
         }
         let payload = serde_json::to_string(&OrderReq { identifiers: ids })?;
-        let (status_code, response) = self
-            .request("newOrder", payload)
-            .unwrap();
+        let (status_code, response) = self.request("newOrder", payload).unwrap();
         if http_status_ok(status_code) {
             let order: Order = serde_json::from_str(&response).unwrap();
             for auth in &order.authorizations {
@@ -231,18 +232,30 @@ impl<'a> Account<'a> {
 
     fn trigger_challenge(&mut self, url: &str) {
         let (status_code, response) = self.request(url, "{}".to_string()).unwrap();
-        println!("{}\n{}", status_code, response);
+        log::info!(
+            "{{\"op\":\"challenge start\", \"status\": {}, \"response\": {}}}",
+            status_code,
+            response
+        );
     }
 
     fn challenge_status(&mut self, url: &str) {
         let (status_code, response) = self.request(url, "".to_string()).unwrap();
-        println!("{}\n{}", status_code, response);
+        log::info!(
+            "{{\"op\":\"challenge status\", \"status\": {}, \"response\": {}}}",
+            status_code,
+            response
+        );
     }
 
     pub fn info(&mut self) {
         let url = self.kid.as_ref().unwrap().to_owned();
         let (status_code, response) = self.request(&url, "".to_string()).unwrap();
-        println!("{}\n{}", status_code, response);
+        log::info!(
+            "{{\"op\":\"account info\", \"status\": {}, \"response\": {}}}",
+            status_code,
+            response
+        );
     }
 
     /// Generates an ECDSA (P-265 curve) keypair.
@@ -262,7 +275,10 @@ impl<'a> Account<'a> {
             #[serde(rename = "termsOfServiceAgreed")]
             terms_of_service_agreed: bool,
         }
-        let payload = serde_json::to_string(&Registration { contact: vec![format!("mailto:{}", self.email.to_owned())], terms_of_service_agreed: true })?;
+        let payload = serde_json::to_string(&Registration {
+            contact: vec![format!("mailto:{}", self.email.to_owned())],
+            terms_of_service_agreed: true,
+        })?;
         let (status_code, response) = self.request("newAccount", payload)?;
         if http_status_ok(status_code) {
             Ok(())
@@ -274,7 +290,9 @@ impl<'a> Account<'a> {
     /// Function to calculate [Key Authorization](https://tools.ietf.org/html/rfc8555#section-8.1). Basically, it's a token from the challenge + base64url encoded SHA256 hash
     /// of the jwk.
     pub fn key_authorization(&self, token: &str) -> String {
-        let jwk = jws::jwk(self.key_pair.public_key().as_ref()).unwrap().to_string();
+        let jwk = jws::jwk(self.key_pair.public_key().as_ref())
+            .unwrap()
+            .to_string();
         let hash = digest::digest(&digest::SHA256, jwk.as_bytes());
         let key_authorization = format!("{}.{}", token, jws::b64(hash.as_ref()));
         key_authorization
@@ -302,6 +320,11 @@ impl<'a> Account<'a> {
             Some(u) => u,
         };
         let nonce = self.nonce.as_ref().unwrap();
+        log::debug!(
+            "{{\"op\":\"request\",\"url\":\"{}\",\"body\":{}}}",
+            url,
+            payload
+        );
         let jws = jws::sign(&self.key_pair, &nonce, &url, payload, self.kid.as_deref())?;
         let agent = ureq::agent()
             .set("User-Agent", USER_AGENT)
@@ -310,6 +333,10 @@ impl<'a> Account<'a> {
         let response = agent.post(url).send_string(&jws);
         let nonce = response.header("Replay-Nonce").unwrap();
         self.nonce = Some(nonce.to_string());
+        log::debug!(
+            "{{\"op\":\"request responded\", \"status\":{}}}",
+            response.status()
+        );
         if http_status_ok(response.status()) {
             if resource == "newAccount" {
                 let kid = response.header("Location").unwrap_or("none");

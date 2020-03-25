@@ -7,9 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ureq = { version = "0.12.0", features = ["json", "tls"] }
+log = "0.4.8"
+base64 = "0.12.0"
 ring = "0.16.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-base64 = "0.12.0"
+ureq = { version = "0.12.0", features = ["json", "tls"] }
 sled = "0.31.0"

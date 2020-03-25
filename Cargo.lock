@@ -53,6 +53,7 @@ name = "certifika"
 version = "0.1.0"
 dependencies = [
  "base64 0.12.0",
+ "log",
  "ring",
  "serde",
  "serde_json",
