@@ -320,7 +320,12 @@ impl<'a> Account<'a> {
             Some(u) => u,
         };
         let nonce = self.nonce.as_ref().unwrap();
-        log::debug!(r#"{{"op":"request","url":"{}","body":{}}}"#, url, payload);
+        let body = if payload.len() > 0 {
+            payload.clone()
+        } else {
+            "\"\"".to_string()
+        };
+        log::debug!(r#"{{"op":"request","url":"{}","body":{}}}"#, url, body);
         let jws = jws::sign(&self.key_pair, &nonce, &url, payload, self.kid.as_deref())?;
         let agent = ureq::agent()
             .set("User-Agent", USER_AGENT)

@@ -3,6 +3,7 @@ use log::{Level, LevelFilter, Metadata, Record};
 use std::env;
 mod acme;
 
+pub const APP_NAME: &str = "certifika";
 static LOGGER: Logger = Logger;
 struct Logger;
 
@@ -13,11 +14,16 @@ impl log::Log for Logger {
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            if record.target() == "certifika::acme" {
+            if record.target().starts_with(APP_NAME) {
                 println!(
                     r#"{{"level":"{}","message":{}}}"#,
                     record.level(),
-                    record.args()
+                    record
+                        .args()
+                        .to_string()
+                        .replace("\n", "")
+                        .replace("\t", "")
+                        .replace(" ", "")
                 );
             }
         }
@@ -28,6 +34,7 @@ impl log::Log for Logger {
 #[derive(Debug)]
 struct Config {
     base_dir: String,
+    store_type: String,
     log_level: String,
 }
 
@@ -36,7 +43,8 @@ fn configure() -> Config {
     Config {
         base_dir: env::var("CERTIFIKA_STORE_DIR")
             .unwrap_or(format!("{}/.config/certifika", home_dir)),
-        log_level: env::var("CERTIFIKA_LOG_LEVEL").unwrap_or("info".to_string()),
+        log_level: env::var("CERTIFIKA_LOG_LEVEL").unwrap_or("warn".to_string()),
+        store_type: env::var("CERTIFIKA_STORE_TYPE").unwrap_or("db".to_string()),
     }
 }
 
@@ -46,16 +54,16 @@ fn main() {
         "debug" => LevelFilter::Debug,
         "warn" => LevelFilter::Warn,
         "error" => LevelFilter::Error,
-        _ => LevelFilter::Info,
+        "info" => LevelFilter::Info,
+        _ => LevelFilter::Debug,
     };
     log::set_logger(&LOGGER).unwrap();
     log::set_max_level(log_level);
 
-    let store_type = env::args().nth(1).unwrap();
-    let command = env::args().nth(2).unwrap();
-    let email = env::args().nth(3).unwrap();
+    let command = env::args().nth(1).unwrap();
+    let email = env::args().nth(2).unwrap();
 
-    let store: Box<dyn acme::storage::Store> = match store_type.as_str() {
+    let store: Box<dyn acme::storage::Store> = match config.store_type.as_str() {
         "file" => Box::new(acme::storage::FileStore::init(&config.base_dir).unwrap()),
         "db" => Box::new(acme::storage::DbStore::init(&config.base_dir).unwrap()),
         _ => panic!("unknown storage type"),
