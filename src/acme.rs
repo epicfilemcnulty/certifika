@@ -249,8 +249,8 @@ impl<'a> Account<'a> {
         // Generate a key pair in PKCS#8 (v2) format.
         let rng = rand::SystemRandom::new();
         let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
-        let pkcs8 = signature::EcdsaKeyPair::generate_pkcs8(alg, &rng).unwrap();
-        let key_pair = signature::EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref()).unwrap();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).unwrap();
+        let key_pair = EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref()).unwrap();
         Ok((key_pair, pkcs8.as_ref().to_owned()))
     }
 
@@ -306,7 +306,7 @@ impl<'a> Account<'a> {
             Some(u) => u,
         };
         let nonce = self.nonce.as_ref().unwrap();
-        let body = if payload.len() > 0 {
+        let body = if !payload.is_empty() {
             payload.clone()
         } else {
             "\"\"".to_string()

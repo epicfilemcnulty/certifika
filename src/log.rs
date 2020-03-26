@@ -11,19 +11,17 @@ impl log::Log for Logger {
     }
 
     fn log(&self, record: &Record) {
-        if self.enabled(record.metadata()) {
-            if record.target().starts_with(APP_NAME) {
-                println!(
-                    r#"{{"level":"{}","message":{}}}"#,
-                    record.level(),
-                    record
-                        .args()
-                        .to_string()
-                        .replace("\n", "")
-                        .replace("\t", "")
-                        .replace(" ", "")
-                );
-            }
+        if self.enabled(record.metadata()) && record.target().starts_with(APP_NAME) {
+            println!(
+                r#"{{"level":"{}","message":{}}}"#,
+                record.level(),
+                record
+                    .args()
+                    .to_string()
+                    .replace("\n", "")
+                    .replace("\t", "")
+                    .replace(" ", "")
+            );
         }
     }
     fn flush(&self) {}
