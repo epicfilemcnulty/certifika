@@ -7,9 +7,10 @@
 //!
 //! ## Register a new account
 //! ```
-//! let store = acme::storage::FileStore::init(&"/tmp/certifika").unwrap()
+//! let store = storage::FileStore::init(&"/tmp/certifika").unwrap()
 //! let account = acme::Account::new("some@email.com".as_str(), &store).unwrap();
 //! ```
+use crate::storage::{ObjectKind, Store};
 use ring::{
     digest, rand,
     signature::{self, EcdsaKeyPair, KeyPair},
@@ -17,9 +18,7 @@ use ring::{
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::{thread, time};
-
 mod jws;
-pub mod storage;
 
 /// **RFC8555** says that all ACME clients should send user-agent header,
 /// consisting of the client's name and version + http library's name and version.
@@ -107,7 +106,7 @@ struct Authorization {
 
 /// struct for the ACME [Account](https://tools.ietf.org/html/rfc8555#section-7.1.2) object.
 pub struct Account<'a> {
-    store: &'a dyn storage::Store,
+    store: &'a dyn Store,
     email: String,
     directory: Directory,
     key_pair: EcdsaKeyPair,
@@ -118,10 +117,7 @@ pub struct Account<'a> {
 
 impl<'a> Account<'a> {
     /// Tries to register a new ACME account.
-    pub fn new(
-        email: String,
-        store: &'a dyn storage::Store,
-    ) -> Result<Account<'a>, Box<dyn Error>> {
+    pub fn new(email: String, store: &'a dyn Store) -> Result<Account<'a>, Box<dyn Error>> {
         let (key_pair, pkcs8) = Account::generate_keypair()?;
         let mut acc = Account {
             email,
@@ -143,33 +139,24 @@ impl<'a> Account<'a> {
     }
 
     pub fn save(&self) -> Result<(), Box<dyn Error>> {
+        self.store
+            .write(ObjectKind::KeyPair, &self.email, self.pkcs8.as_ref())?;
         self.store.write(
-            storage::ObjectKind::KeyPair,
-            &self.email,
-            self.pkcs8.as_ref(),
-        )?;
-        self.store.write(
-            storage::ObjectKind::Account,
+            ObjectKind::Account,
             &self.email,
             self.kid.to_owned().unwrap().as_bytes(),
         )?;
         let payload = serde_json::to_string(&self.directory)?;
-        self.store.write(
-            storage::ObjectKind::Directory,
-            &self.email,
-            payload.as_bytes(),
-        )?;
+        self.store
+            .write(ObjectKind::Directory, &self.email, payload.as_bytes())?;
         Ok(())
     }
 
-    pub fn load(
-        email: String,
-        store: &'a dyn storage::Store,
-    ) -> Result<Account<'a>, Box<dyn Error>> {
+    pub fn load(email: String, store: &'a dyn Store) -> Result<Account<'a>, Box<dyn Error>> {
         let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
-        let pkcs8 = store.read(storage::ObjectKind::KeyPair, &email)?;
+        let pkcs8 = store.read(ObjectKind::KeyPair, &email)?;
         let key_pair = signature::EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref()).unwrap();
-        let dir = serde_json::from_slice(&store.read(storage::ObjectKind::Directory, &email)?)?;
+        let dir = serde_json::from_slice(&store.read(ObjectKind::Directory, &email)?)?;
         let mut acc = Account {
             email,
             directory: dir,
@@ -181,8 +168,7 @@ impl<'a> Account<'a> {
         };
         acc.nonce = Some(acc.get_nonce().unwrap());
         acc.kid = Some(
-            std::str::from_utf8(&acc.store.read(storage::ObjectKind::Account, &acc.email)?)?
-                .to_string(),
+            std::str::from_utf8(&acc.store.read(ObjectKind::Account, &acc.email)?)?.to_string(),
         );
         Ok(acc)
     }

@@ -3,6 +3,7 @@ use std::env;
 mod acme;
 mod config;
 mod log;
+mod storage;
 
 pub const APP_NAME: &str = "certifika";
 

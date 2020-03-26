@@ -3,7 +3,7 @@ use ::log::LevelFilter;
 use std::env;
 
 pub struct Config {
-    pub store: Box<dyn crate::acme::storage::Store>,
+    pub store: Box<dyn crate::storage::Store>,
     pub log_level: LevelFilter,
 }
 
@@ -22,12 +22,12 @@ impl Config {
             "ERROR" => LevelFilter::Error,
             _ => LevelFilter::Info,
         };
-        let store: Box<dyn crate::acme::storage::Store> = match env::var("CERTIFIKA_STORE_TYPE")
+        let store: Box<dyn crate::storage::Store> = match env::var("CERTIFIKA_STORE_TYPE")
             .unwrap_or("db".to_string())
             .as_str()
         {
-            "file" => Box::new(crate::acme::storage::FileStore::init(&base_dir).unwrap()),
-            "db" => Box::new(crate::acme::storage::DbStore::init(&base_dir).unwrap()),
+            "file" => Box::new(crate::storage::FileStore::init(&base_dir).unwrap()),
+            "db" => Box::new(crate::storage::DbStore::init(&base_dir).unwrap()),
             _ => panic!("unknown storage type"),
         };
         Config { log_level, store }
