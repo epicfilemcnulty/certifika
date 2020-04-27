@@ -11,6 +11,7 @@
 //! let account = acme::Account::new("some@email.com".as_str(), &store).unwrap();
 //! ```
 use crate::storage::{ObjectKind, Store};
+use crate::{APP_NAME, APP_VERSION};
 use ring::{
     digest, rand,
     signature::{self, EcdsaKeyPair, KeyPair},
@@ -20,9 +21,7 @@ use std::error::Error;
 use std::{thread, time};
 mod jws;
 
-/// **RFC8555** says that all ACME clients should send user-agent header,
-/// consisting of the client's name and version + http library's name and version.
-pub const USER_AGENT: &str = "certifika 0.1/ureq 0.12.0";
+pub const HTTP_CLIENT_LIB: &str = "ureq 0.12.1";
 pub const LETSENCRYPT_DIRECTORY_URL: &str =
     "https://acme-staging-v02.api.letsencrypt.org/directory";
 
@@ -43,7 +42,7 @@ impl Directory {
     }
     /// method to create a new Directory instance from an URL.
     pub fn from_url(url: &str) -> Result<Directory, Box<dyn Error>> {
-        let agent = ureq::agent().set("User-Agent", USER_AGENT).build();
+        let agent = ureq::agent().set("User-Agent", &http_user_agent()).build();
         let response = agent.get(url).call();
         if response.ok() {
             Ok(Directory {
@@ -286,7 +285,7 @@ impl<'a> Account<'a> {
 
     fn get_nonce(&self) -> Result<String, Box<dyn Error>> {
         let url = self.directory.url_for("newNonce").unwrap();
-        let agent = ureq::agent().set("User-Agent", USER_AGENT).build();
+        let agent = ureq::agent().set("User-Agent", &http_user_agent()).build();
         let response = agent.head(url).call();
         if response.ok() {
             let nonce = response.header("Replay-Nonce").unwrap();
@@ -314,7 +313,7 @@ impl<'a> Account<'a> {
         log::debug!(r#"{{"op":"request","url":"{}","body":{}}}"#, url, body);
         let jws = jws::sign(&self.key_pair, &nonce, &url, payload, self.kid.as_deref())?;
         let agent = ureq::agent()
-            .set("User-Agent", USER_AGENT)
+            .set("User-Agent", &http_user_agent())
             .set("Content-Type", "application/jose+json")
             .build();
         let response = agent.post(url).send_string(&jws);
@@ -338,4 +337,10 @@ impl<'a> Account<'a> {
 
 fn http_status_ok(status: u16) -> bool {
     status >= 200 && status < 300
+}
+
+/// **RFC8555** says that all ACME clients should send user-agent header,
+/// consisting of the client's name and version + http library's name and version.
+fn http_user_agent() -> String {
+    format!("{} {}/{}", APP_NAME, APP_VERSION, HTTP_CLIENT_LIB)
 }
