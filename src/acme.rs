@@ -21,7 +21,7 @@ use std::error::Error;
 use std::{thread, time};
 mod jws;
 
-pub const HTTP_CLIENT_LIB: &str = "ureq 0.12.1";
+pub const HTTP_CLIENT_LIB: &str = "ureq 2.0.1";
 pub const LETSENCRYPT_DIRECTORY_URL: &str =
     "https://acme-staging-v02.api.letsencrypt.org/directory";
 
@@ -42,16 +42,15 @@ impl Directory {
     }
     /// method to create a new Directory instance from an URL.
     pub fn from_url(url: &str) -> Result<Directory, Box<dyn Error>> {
-        let agent = ureq::agent().set("User-Agent", &http_user_agent()).build();
-        let response = agent.get(url).call();
-        if response.ok() {
-            Ok(Directory {
-                url: url.to_owned(),
-                directory: response.into_json()?,
-            })
-        } else {
-            Err(response.into_string()?.into())
-        }
+        let agent = ureq::AgentBuilder::new().build();
+        let response = agent
+            .get(url)
+            .set("User-Agent", &http_user_agent())
+            .call()?;
+        Ok(Directory {
+            url: url.to_owned(),
+            directory: response.into_json()?,
+        })
     }
 
     /// `self.directory` field has a JSON directory object we got from Let's Encrypt. It has links to all Let's Encrypt resources:
@@ -285,14 +284,13 @@ impl<'a> Account<'a> {
 
     fn get_nonce(&self) -> Result<String, Box<dyn Error>> {
         let url = self.directory.url_for("newNonce").unwrap();
-        let agent = ureq::agent().set("User-Agent", &http_user_agent()).build();
-        let response = agent.head(url).call();
-        if response.ok() {
-            let nonce = response.header("Replay-Nonce").unwrap();
-            Ok(nonce.to_string())
-        } else {
-            Err(response.into_string()?.into())
-        }
+        let agent = ureq::AgentBuilder::new().build();
+        let response = agent
+            .head(url)
+            .set("User-Agent", &http_user_agent())
+            .call()?;
+        let nonce = response.header("Replay-Nonce").unwrap();
+        Ok(nonce.to_string())
     }
 
     fn request(
@@ -312,11 +310,12 @@ impl<'a> Account<'a> {
         };
         log::debug!(r#"{{"op":"request","url":"{}","body":{}}}"#, url, body);
         let jws = jws::sign(&self.key_pair, &nonce, &url, payload, self.kid.as_deref())?;
-        let agent = ureq::agent()
+        let agent = ureq::AgentBuilder::new().build();
+        let response = agent
+            .post(url)
             .set("User-Agent", &http_user_agent())
             .set("Content-Type", "application/jose+json")
-            .build();
-        let response = agent.post(url).send_string(&jws);
+            .send_string(&jws)?;
         let nonce = response.header("Replay-Nonce").unwrap();
         self.nonce = Some(nonce.to_string());
         log::debug!(
