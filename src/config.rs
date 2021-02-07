@@ -23,11 +23,11 @@ impl Config {
             _ => LevelFilter::Info,
         };
         let store: Box<dyn crate::storage::Store> = match env::var("CERTIFIKA_STORE_TYPE")
-            .unwrap_or("db".to_string())
+            .unwrap_or("file".to_string())
             .as_str()
         {
             "file" => Box::new(crate::storage::FileStore::init(&base_dir).unwrap()),
-            "db" => Box::new(crate::storage::DbStore::init(&base_dir).unwrap()),
+            "vault" => Box::new(crate::storage::VaultStore::init("certifika").unwrap()),
             _ => panic!("unknown storage type"),
         };
         Config { log_level, store }

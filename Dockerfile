@@ -1,11 +1,9 @@
 FROM rust:1.49.0 AS builder
 WORKDIR /usr/src/
-RUN rustup component add rustfmt
 RUN mkdir /usr/src/certifika
 COPY src /usr/src/certifika/src
 COPY Cargo.toml /usr/src/certifika/
 WORKDIR /usr/src/certifika
-RUN cargo fmt
 RUN cargo install --path .
 
 FROM alpine:3.13
