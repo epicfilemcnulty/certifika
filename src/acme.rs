@@ -335,7 +335,7 @@ impl<'a> Account<'a> {
 }
 
 fn http_status_ok(status: u16) -> bool {
-    status >= 200 && status < 300
+    (200..300).contains(&status)
 }
 
 /// **RFC8555** says that all ACME clients should send user-agent header,

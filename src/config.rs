@@ -13,7 +13,7 @@ impl Config {
         let base_dir =
             env::var("CERTIFIKA_STORE_DIR").unwrap_or(format!("{}/.config/certifika", home_dir));
         let log_level = match env::var("CERTIFIKA_LOG_LEVEL")
-            .unwrap_or("WARN".to_string())
+            .unwrap_or_else(|_| "WARN".to_string())
             .as_str()
         {
             "DEBUG" => LevelFilter::Debug,
@@ -23,7 +23,7 @@ impl Config {
             _ => LevelFilter::Info,
         };
         let store: Box<dyn crate::storage::Store> = match env::var("CERTIFIKA_STORE_TYPE")
-            .unwrap_or("file".to_string())
+            .unwrap_or_else(|_| "file".to_string())
             .as_str()
         {
             "file" => Box::new(crate::storage::FileStore::init(&base_dir).unwrap()),
