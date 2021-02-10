@@ -11,16 +11,16 @@ pub enum ObjectKind {
 
 #[derive(Error, Debug)]
 pub enum StoreError {
-    #[error("Error reading env vars")]
+    #[error("Both VAULT_ADDR and VAULT_TOKEN must be set: {0:?}")]
     Init(env::VarError),
-    #[error("Error communicating with vault")]
-    VaultErr(ureq::Error),
-    #[error("JSON encoding error")]
-    EncErr(std::io::Error),
-    #[error("JSON decoding error")]
-    DecErr(base64::DecodeError),
-    #[error("File error")]
-    FileErr(std::io::Error),
+    #[error("Vault API: {0:?}")]
+    Vault(ureq::Error),
+    #[error("JSON encode: {0:?}")]
+    JsonEncode(std::io::Error),
+    #[error("Base64 decode: {0:?}")]
+    Base64Decode(base64::DecodeError),
+    #[error("File I/O: {0:?}")]
+    File(std::io::Error),
 }
 
 pub trait Store {
@@ -54,7 +54,7 @@ impl VaultStore {
             .post(&url)
             .set("X-Vault-Token", &self.token)
             .send_json(ureq::json!({"data": { "value" : base64::encode(payload)}}))
-            .map_err(StoreError::VaultErr)?;
+            .map_err(StoreError::Vault)?;
         Ok(())
     }
     fn get(&self, path: &str) -> Result<Vec<u8>, StoreError> {
@@ -64,9 +64,9 @@ impl VaultStore {
             .get(&url)
             .set("X-Vault-Token", &self.token)
             .call()
-            .map_err(StoreError::VaultErr)?
+            .map_err(StoreError::Vault)?
             .into_json()
-            .map_err(StoreError::EncErr)?;
+            .map_err(StoreError::JsonEncode)?;
         let value = &json["data"]["data"]["value"].as_str().unwrap();
         Ok(value.to_string().into_bytes())
     }
@@ -81,7 +81,7 @@ impl Store for VaultStore {
             ObjectKind::Account => format!("{}/accounts/{}.acc", self.prefix, account_name),
             ObjectKind::KeyPair => format!("{}/accounts/{}.key", self.prefix, account_name),
         };
-        let buffer = base64::decode(self.get(&path)?).map_err(StoreError::DecErr)?;
+        let buffer = base64::decode(self.get(&path)?).map_err(StoreError::Base64Decode)?;
         Ok(buffer)
     }
 
@@ -118,9 +118,9 @@ impl Store for FileStore {
             ObjectKind::Account => format!("{}/accounts/{}.acc", self.base_dir, account_name),
             ObjectKind::KeyPair => format!("{}/accounts/{}.key", self.base_dir, account_name),
         };
-        let mut file = File::open(filename).map_err(StoreError::FileErr)?;
+        let mut file = File::open(filename).map_err(StoreError::File)?;
         let mut buffer: Vec<u8> = Vec::new();
-        file.read_to_end(&mut buffer).map_err(StoreError::FileErr)?;
+        file.read_to_end(&mut buffer).map_err(StoreError::File)?;
         Ok(buffer)
     }
 
@@ -135,8 +135,8 @@ impl Store for FileStore {
             ObjectKind::Account => format!("{}/accounts/{}.acc", self.base_dir, account_name),
             ObjectKind::KeyPair => format!("{}/accounts/{}.key", self.base_dir, account_name),
         };
-        let mut file = File::create(filename).map_err(StoreError::FileErr)?;
-        file.write_all(payload).map_err(StoreError::FileErr)?;
+        let mut file = File::create(filename).map_err(StoreError::File)?;
+        file.write_all(payload).map_err(StoreError::File)?;
         Ok(())
     }
 }

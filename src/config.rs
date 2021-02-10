@@ -1,5 +1,6 @@
 #![deny(clippy::mem_forget)]
 use ::log::LevelFilter;
+use anyhow::{anyhow, Result};
 use std::env;
 
 pub struct Config {
@@ -8,7 +9,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn parse() -> Self {
+    pub fn parse() -> Result<Self> {
         let home_dir = env::var("HOME").unwrap();
         let base_dir =
             env::var("CERTIFIKA_STORE_DIR").unwrap_or(format!("{}/.config/certifika", home_dir));
@@ -26,10 +27,10 @@ impl Config {
             .unwrap_or_else(|_| "file".to_string())
             .as_str()
         {
-            "file" => Box::new(crate::storage::FileStore::init(&base_dir).unwrap()),
-            "vault" => Box::new(crate::storage::VaultStore::init("certifika").unwrap()),
-            _ => panic!("unknown storage type"),
+            "file" => Box::new(crate::storage::FileStore::init(&base_dir)?),
+            "vault" => Box::new(crate::storage::VaultStore::init("certifika")?),
+            _ => return Err(anyhow!("unknown storage type")),
         };
-        Config { log_level, store }
+        Ok(Config { log_level, store })
     }
 }

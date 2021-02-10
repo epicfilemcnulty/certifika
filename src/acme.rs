@@ -12,18 +12,39 @@
 //! ```
 use crate::storage::{ObjectKind, Store};
 use crate::{APP_NAME, APP_VERSION};
+use anyhow::anyhow;
 use ring::{
     digest, rand,
     signature::{self, EcdsaKeyPair, KeyPair},
 };
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 use std::{thread, time};
+use thiserror::Error;
 mod jws;
 
 pub const HTTP_CLIENT_LIB: &str = "ureq 2.0.1";
 pub const LETSENCRYPT_DIRECTORY_URL: &str =
     "https://acme-staging-v02.api.letsencrypt.org/directory";
+
+#[derive(Error, Debug)]
+pub enum AcmeError {
+    #[error("ACME API: {0:?}")]
+    Api(ureq::Error),
+    #[error("JSON encode: {0:?}")]
+    JsonEncode(std::io::Error),
+    #[error("JSON decode: {0:?}")]
+    JsonDecode(serde_json::error::Error),
+    #[error("Storage: {0:?}")]
+    Store(crate::storage::StoreError),
+    #[error("ECDSA key decode: {0:?}")]
+    KeyDecode(ring::error::KeyRejected),
+    #[error("ECDSA key generation: {0:?}")]
+    KeyGen(ring::error::Unspecified),
+    #[error("UTF8 processing: {0:?}")]
+    Utf8(std::str::Utf8Error),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
 
 /// Let's Encrypt [directory](https://tools.ietf.org/html/rfc8555#section-7.1.1) object struct. Usually you don't need
 /// to interact with it directly, the `Account` struct includes
@@ -37,19 +58,20 @@ struct Directory {
 impl Directory {
     /// a wrapper around `Self::from_url()` method to create
     /// a new instance from the default Let's Encrypt URL.
-    pub fn lets_encrypt() -> Result<Directory, Box<dyn Error>> {
+    pub fn lets_encrypt() -> Result<Directory, AcmeError> {
         Directory::from_url(LETSENCRYPT_DIRECTORY_URL)
     }
     /// method to create a new Directory instance from an URL.
-    pub fn from_url(url: &str) -> Result<Directory, Box<dyn Error>> {
+    pub fn from_url(url: &str) -> Result<Directory, AcmeError> {
         let agent = ureq::AgentBuilder::new().build();
         let response = agent
             .get(url)
             .set("User-Agent", &http_user_agent())
-            .call()?;
+            .call()
+            .map_err(AcmeError::Api)?;
         Ok(Directory {
             url: url.to_owned(),
-            directory: response.into_json()?,
+            directory: response.into_json().map_err(AcmeError::JsonEncode)?,
         })
     }
 
@@ -115,7 +137,7 @@ pub struct Account<'a> {
 
 impl<'a> Account<'a> {
     /// Tries to register a new ACME account.
-    pub fn new(email: String, store: &'a dyn Store) -> Result<Account<'a>, Box<dyn Error>> {
+    pub fn new(email: String, store: &'a dyn Store) -> Result<Account<'a>, AcmeError> {
         let (key_pair, pkcs8) = Account::generate_keypair()?;
         let mut acc = Account {
             email,
@@ -127,34 +149,42 @@ impl<'a> Account<'a> {
             kid: None,
         };
         acc.nonce = Some(acc.get_nonce()?);
-        match &acc.register() {
-            Ok(_) => {
-                acc.save()?;
-                Ok(acc)
-            }
-            Err(_) => Err("failed to register account".into()),
-        }
+        acc.register()?;
+        acc.save()?;
+        Ok(acc)
     }
 
-    pub fn save(&self) -> Result<(), Box<dyn Error>> {
+    pub fn save(&self) -> Result<(), AcmeError> {
         self.store
-            .write(ObjectKind::KeyPair, &self.email, self.pkcs8.as_ref())?;
-        self.store.write(
-            ObjectKind::Account,
-            &self.email,
-            self.kid.to_owned().unwrap().as_bytes(),
-        )?;
-        let payload = serde_json::to_string(&self.directory)?;
+            .write(ObjectKind::KeyPair, &self.email, self.pkcs8.as_ref())
+            .map_err(AcmeError::Store)?;
         self.store
-            .write(ObjectKind::Directory, &self.email, payload.as_bytes())?;
+            .write(
+                ObjectKind::Account,
+                &self.email,
+                self.kid.to_owned().unwrap().as_bytes(),
+            )
+            .map_err(AcmeError::Store)?;
+        let payload = serde_json::to_string(&self.directory).map_err(AcmeError::JsonDecode)?;
+        self.store
+            .write(ObjectKind::Directory, &self.email, payload.as_bytes())
+            .map_err(AcmeError::Store)?;
         Ok(())
     }
 
-    pub fn load(email: String, store: &'a dyn Store) -> Result<Account<'a>, Box<dyn Error>> {
+    pub fn load(email: String, store: &'a dyn Store) -> Result<Account<'a>, AcmeError> {
         let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
-        let pkcs8 = store.read(ObjectKind::KeyPair, &email)?;
-        let key_pair = signature::EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref()).unwrap();
-        let dir = serde_json::from_slice(&store.read(ObjectKind::Directory, &email)?)?;
+        let pkcs8 = store
+            .read(ObjectKind::KeyPair, &email)
+            .map_err(AcmeError::Store)?;
+        let key_pair = signature::EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref())
+            .map_err(AcmeError::KeyDecode)?;
+        let dir = serde_json::from_slice(
+            &store
+                .read(ObjectKind::Directory, &email)
+                .map_err(AcmeError::Store)?,
+        )
+        .map_err(AcmeError::JsonDecode)?;
         let mut acc = Account {
             email,
             directory: dir,
@@ -164,14 +194,20 @@ impl<'a> Account<'a> {
             nonce: None,
             kid: None,
         };
-        acc.nonce = Some(acc.get_nonce().unwrap());
+        acc.nonce = Some(acc.get_nonce()?);
         acc.kid = Some(
-            std::str::from_utf8(&acc.store.read(ObjectKind::Account, &acc.email)?)?.to_string(),
+            std::str::from_utf8(
+                &acc.store
+                    .read(ObjectKind::Account, &acc.email)
+                    .map_err(AcmeError::Store)?,
+            )
+            .map_err(AcmeError::Utf8)?
+            .to_string(),
         );
         Ok(acc)
     }
 
-    pub fn order(&mut self, domains: Vec<String>) -> Result<(), Box<dyn Error>> {
+    pub fn order(&mut self, domains: Vec<String>) -> Result<(), AcmeError> {
         #[derive(Debug, Serialize, Deserialize)]
         struct OrderReq {
             identifiers: Vec<Identifier>,
@@ -183,12 +219,13 @@ impl<'a> Account<'a> {
                 value: domain,
             });
         }
-        let payload = serde_json::to_string(&OrderReq { identifiers: ids })?;
-        let (status_code, response) = self.request("newOrder", payload).unwrap();
+        let payload =
+            serde_json::to_string(&OrderReq { identifiers: ids }).map_err(AcmeError::JsonDecode)?;
+        let (status_code, response) = self.request("newOrder", payload)?;
         if http_status_ok(status_code) {
-            let order: Order = serde_json::from_str(&response).unwrap();
+            let order: Order = serde_json::from_str(&response).map_err(AcmeError::JsonDecode)?;
             for auth in &order.authorizations {
-                let a = self.authorization(&auth).unwrap();
+                let a = self.authorization(&auth)?;
                 for c in &a.challenges {
                     if c._type == "dns-01" {
                         let ka = self.key_authorization(&c.token);
@@ -201,16 +238,19 @@ impl<'a> Account<'a> {
             }
             Ok(())
         } else {
-            Err(response.into())
+            Err(AcmeError::Other(anyhow!("order failed: {:?}", response)))
         }
     }
 
-    fn authorization(&mut self, url: &str) -> Result<Authorization, Box<dyn Error>> {
-        let (status_code, response) = self.request(url, "".to_string()).unwrap();
+    fn authorization(&mut self, url: &str) -> Result<Authorization, AcmeError> {
+        let (status_code, response) = self.request(url, "".to_string())?;
         if http_status_ok(status_code) {
-            Ok(serde_json::from_str(&response).unwrap())
+            Ok(serde_json::from_str(&response).map_err(AcmeError::JsonDecode)?)
         } else {
-            Err(response.into())
+            Err(AcmeError::Other(anyhow!(
+                "authorization failed: {:?}",
+                response
+            )))
         }
     }
 
@@ -243,16 +283,17 @@ impl<'a> Account<'a> {
     }
 
     /// Generates an ECDSA (P-265 curve) keypair.
-    fn generate_keypair() -> Result<(EcdsaKeyPair, Vec<u8>), Box<dyn Error>> {
+    fn generate_keypair() -> Result<(EcdsaKeyPair, Vec<u8>), AcmeError> {
         // Generate a key pair in PKCS#8 (v2) format.
         let rng = rand::SystemRandom::new();
         let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
-        let pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).unwrap();
-        let key_pair = EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref()).unwrap();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).map_err(AcmeError::KeyGen)?;
+        let key_pair =
+            EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref()).map_err(AcmeError::KeyDecode)?;
         Ok((key_pair, pkcs8.as_ref().to_owned()))
     }
 
-    fn register(&mut self) -> Result<(), Box<dyn Error>> {
+    fn register(&mut self) -> Result<(), AcmeError> {
         #[derive(Debug, Serialize, Deserialize)]
         struct Registration {
             contact: Vec<String>,
@@ -262,12 +303,16 @@ impl<'a> Account<'a> {
         let payload = serde_json::to_string(&Registration {
             contact: vec![format!("mailto:{}", self.email.to_owned())],
             terms_of_service_agreed: true,
-        })?;
+        })
+        .map_err(AcmeError::JsonDecode)?;
         let (status_code, response) = self.request("newAccount", payload)?;
         if http_status_ok(status_code) {
             Ok(())
         } else {
-            Err(format!("failed to register account - {}", response).into())
+            Err(AcmeError::Other(anyhow!(
+                "registration failed: {:?}",
+                response
+            )))
         }
     }
 
@@ -282,22 +327,19 @@ impl<'a> Account<'a> {
         key_authorization
     }
 
-    fn get_nonce(&self) -> Result<String, Box<dyn Error>> {
+    fn get_nonce(&self) -> Result<String, AcmeError> {
         let url = self.directory.url_for("newNonce").unwrap();
         let agent = ureq::AgentBuilder::new().build();
         let response = agent
             .head(url)
             .set("User-Agent", &http_user_agent())
-            .call()?;
+            .call()
+            .map_err(AcmeError::Api)?;
         let nonce = response.header("Replay-Nonce").unwrap();
         Ok(nonce.to_string())
     }
 
-    fn request(
-        &mut self,
-        resource: &str,
-        payload: String,
-    ) -> Result<(u16, String), Box<dyn Error>> {
+    fn request(&mut self, resource: &str, payload: String) -> Result<(u16, String), AcmeError> {
         let url = match self.directory.url_for(resource) {
             None => resource,
             Some(u) => u,
@@ -309,13 +351,15 @@ impl<'a> Account<'a> {
             "\"\"".to_string()
         };
         log::debug!(r#"{{"op":"request","url":"{}","body":{}}}"#, url, body);
-        let jws = jws::sign(&self.key_pair, &nonce, &url, payload, self.kid.as_deref())?;
+        let jws = jws::sign(&self.key_pair, &nonce, &url, payload, self.kid.as_deref())
+            .map_err(AcmeError::Other)?;
         let agent = ureq::AgentBuilder::new().build();
         let response = agent
             .post(url)
             .set("User-Agent", &http_user_agent())
             .set("Content-Type", "application/jose+json")
-            .send_string(&jws)?;
+            .send_string(&jws)
+            .map_err(AcmeError::Api)?;
         let nonce = response.header("Replay-Nonce").unwrap();
         self.nonce = Some(nonce.to_string());
         log::debug!(
@@ -327,9 +371,12 @@ impl<'a> Account<'a> {
                 let kid = response.header("Location").unwrap_or("none");
                 self.kid = Some(kid.to_string());
             }
-            Ok((response.status(), response.into_string()?))
+            Ok((
+                response.status(),
+                response.into_string().map_err(AcmeError::JsonEncode)?,
+            ))
         } else {
-            Err(response.into_string()?.into())
+            Err(AcmeError::Other(anyhow!("request failed: {:?}", response)))
         }
     }
 }

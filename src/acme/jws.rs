@@ -1,11 +1,11 @@
 //! module to work with JSON Web Signatures -- [RFC7515](https://tools.ietf.org/html/rfc7515).
 //! The module supports signing with ECDSA P-256 keys only.
 
+use anyhow::Result;
 use ring::rand;
 use ring::signature::EcdsaKeyPair;
 use ring::signature::KeyPair;
 use std::collections::HashMap;
-use std::error::Error;
 
 /// a shortcut function to use base64 URL-safe encoding with no padding.
 ///
@@ -21,7 +21,7 @@ pub fn b64(data: &[u8]) -> String {
 
 /// Generates JWK from a public key of EcdsaKeyPair. See [RFC7517](https://tools.ietf.org/html/rfc7517) on JWK,
 /// and [RFC7518](https://tools.ietf.org/html/rfc7518) on JWA and different JWK parameters.
-pub fn jwk(public_key: &[u8]) -> Result<serde_json::Value, Box<dyn Error>> {
+pub fn jwk(public_key: &[u8]) -> Result<serde_json::Value> {
     // First octect of the public key says whether it's uncompressed (04) or not (03 o 02).
     // After that it has X and Y coordinates, each 32 bytes long. We know that we are dealing
     // with the uncompressed key of the same length all the time, so we can do this:
@@ -42,7 +42,7 @@ pub fn sign(
     url: &str,
     payload: String,
     kid: Option<&str>,
-) -> Result<String, Box<dyn Error>> {
+) -> Result<String> {
     let mut data: HashMap<String, serde_json::Value> = HashMap::new();
 
     // payload
