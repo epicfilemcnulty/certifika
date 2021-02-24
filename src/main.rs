@@ -1,5 +1,5 @@
 #![deny(clippy::mem_forget)]
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use std::env;
 mod acme;
 mod config;
@@ -14,11 +14,11 @@ fn main() -> Result<()> {
     crate::log::init(config.log_level);
 
     let command = env::args().nth(1).context("command not provided")?;
-    let email = env::args().nth(2).context("account email is a must")?;
+    let email = env::args().nth(2).context("account email not provided")?;
     let mut account = match command.as_str() {
         "load" => acme::Account::load(email, &*config.store)?,
         "reg" => acme::Account::new(email, &*config.store)?,
-        _ => panic!("Unknown command!"),
+        _ => return Err(anyhow!("Unknown command!")),
     };
     let domains: Vec<String> = ["deviantguru".to_string()].to_vec();
     account.order(domains)?;
